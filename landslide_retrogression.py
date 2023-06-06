@@ -149,10 +149,10 @@ def landslide_retrogression_3d(dem: np.ndarray, initial_release: np.ndarray, dem
         cmap = ListedColormap(['white', 'red'])
         fig, ax = plt.subplots()
         im = ax.imshow(release, cmap=cmap)
+        print("iteration: ")
 
     while n_iter < max_iter:
         if n_iter % 2 == 0 and verbose:
-            print("iteration: ")
             print(n_iter, end=",")
             im.set_data(release)
             plt.pause(0.1)
