@@ -1,3 +1,4 @@
+import argparse
 import logging
 import uuid
 import warnings
@@ -103,7 +104,7 @@ def landslide_retrogression_2d(prof: np.ndarray, index_init: int, res: int = 1, 
 
 def landslide_retrogression_3d(dem: np.ndarray, initial_release: np.ndarray, dem_transform: rasterio.transform.Affine,
                                min_slope: float = 1 / 15, min_length: float = 200, max_length: float = 2000,
-                               verbose: bool = False):
+                               initial_release_depth: float = 0, verbose: bool = False):
     """
     Propagates a landslide from a release area in a DEM. Stop criteria is defined by the maximum slope, minimum and
     maximum length of the landslide. The propagation is done iteratively, starting from the release area and moving
@@ -117,6 +118,8 @@ def landslide_retrogression_3d(dem: np.ndarray, initial_release: np.ndarray, dem
         min_slope (float): minimum slope of the landslide. Default is 1/15 as in NVE's guidelines
         min_length (float): minimum length of the landslide. Default is 200 m.
         max_length (float): maximum length of the landslide. Default is 2000 m.
+        initial_release_depth (float): depth of the initial release area. Default is 0.
+        #todo: change to depth in the raster (as pixel value) instead.
         verbose (bool): if True, prints the number of iterations and plots propagation. Default is False.
 
     Returns:
@@ -148,20 +151,18 @@ def landslide_retrogression_3d(dem: np.ndarray, initial_release: np.ndarray, dem
         cmap = ListedColormap(['white', 'red'])
         fig, ax = plt.subplots()
         im = ax.imshow(release, cmap=cmap)
-        print("iteration: ")
 
-    with tqdm(total=max_iter) as pbar:
+    i_rel, j_rel = np.where(initial_release == 1)
+    x_rel, y_rel = rasterio.transform.xy(dem_transform, i_rel, j_rel)
+    z_rel = np.array([dem[ii, jj]-initial_release_depth for ii, jj in zip(i_rel, j_rel)])
+    release_coords = np.c_[x_rel, y_rel, z_rel]
+
+    with tqdm(total=max_iter, desc="iterations") as pbar:
         while n_iter < max_iter:
             if n_iter % 2 == 0 and verbose:
-                print(n_iter, end=",")
                 im.set_data(release)
-                plt.pause(0.1)
+                plt.pause(0.01)
                 fig.canvas.draw()
-
-            i_rel, j_rel = np.where(release == 1)
-            x_rel, y_rel = rasterio.transform.xy(dem_transform, i_rel, j_rel)
-            z_rel = np.array([dem[ii, jj] for ii, jj in zip(i_rel, j_rel)])
-            release_coords = np.c_[x_rel, y_rel, z_rel]
 
             buffered = create_buffer(release, 1)
             i_buffered, j_buffered = np.where(buffered == 1)
@@ -230,7 +231,7 @@ def compute_slope(coords_1: np.ndarray, coords_2: np.ndarray, h_min: float = 0, 
         hl_ratio[height_mtx < h_min] = nodata
         max_slope = np.max(hl_ratio, axis=1)
 
-        # todo: return slope / distance / height
+        # todo: return max_slope / distance(max_slope) / height(max_slope)
         return max_slope
 
 
@@ -316,14 +317,30 @@ def save_results(results, raster_profile, filename):
         save_results(results, raster_profile, new_filename)
 
 
-if __name__ == '__main__':
-    with rasterio.open("gjerdrum_dem.tif") as src:
-        dem_test = src.read(1)
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--source_path", help="Path to the source area shapefile",required=True)
+    parser.add_argument("--dem_path", help="Path to the dem",required=True)
+    parser.add_argument("--out_path", help="Path to the output shapefile", default=None, required=False)
+    parser.add_argument("--verbose", help="Show plots", type=bool, default=False, required=False)
+    parser.add_argument("--min_slope", help="Minimum slope", type=float, default=1 / 15, required=False)
+    parser.add_argument("--initial_release_depth", help="Initial release depth", type=float, default=0, required=False)
+
+    args = parser.parse_args()
+
+    with rasterio.open(args.dem_path) as src:
+        dem_array = src.read(1)
         transform = src.transform
         profile = src.profile
-    with rasterio.open("release.tif") as src_rel:
-        rel = src_rel.read(1)
+    rel = rasterize_release(args.source_path, profile)
 
-    release_result = landslide_retrogression_3d(dem_test, rel, transform, verbose=False, min_slope=1 / 15)
+    release_result = landslide_retrogression_3d(dem_array, rel, transform,
+                                                verbose=args.verbose, min_slope=args.min_slope,
+                                                initial_release_depth=args.initial_release_depth)
 
-    save_results(release_result, profile, "./test_release_result.tif")
+    if args.out_path is not None:
+        polygonize_results(release_result, profile, args.out_path)
+
+
+if __name__ == '__main__':
+    main()
