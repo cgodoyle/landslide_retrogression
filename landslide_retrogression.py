@@ -154,7 +154,7 @@ def landslide_retrogression_3d(dem: np.ndarray, initial_release: np.ndarray, dem
 
     i_rel, j_rel = np.where(initial_release == 1)
     x_rel, y_rel = rasterio.transform.xy(dem_transform, i_rel, j_rel)
-    z_rel = np.array([dem[ii, jj]-initial_release_depth for ii, jj in zip(i_rel, j_rel)])
+    z_rel = np.array([dem[ii, jj] - initial_release_depth for ii, jj in zip(i_rel, j_rel)])
     release_coords = np.c_[x_rel, y_rel, z_rel]
 
     with tqdm(total=max_iter, desc="iterations") as pbar:
@@ -235,7 +235,7 @@ def compute_slope(coords_1: np.ndarray, coords_2: np.ndarray, h_min: float = 0, 
         return max_slope
 
 
-def rasterize_release(file_path: str, dem_profile: rasterio.profiles.Profile, out_path: str = None)-> np.ndarray:
+def rasterize_release(file_path: str, dem_profile: rasterio.profiles.Profile, out_path: str = None) -> np.ndarray:
     """
     Rasterize the release area
     Args:
@@ -319,8 +319,8 @@ def save_results(results, raster_profile, filename):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--source_path", help="Path to the source area shapefile",required=True)
-    parser.add_argument("--dem_path", help="Path to the dem",required=True)
+    parser.add_argument("--source_path", help="Path to the source area shapefile", required=True)
+    parser.add_argument("--dem_path", help="Path to the dem", required=True)
     parser.add_argument("--out_path", help="Path to the output shapefile", default=None, required=False)
     parser.add_argument("--verbose", help="Show plots", type=bool, default=False, required=False)
     parser.add_argument("--min_slope", help="Minimum slope", type=float, default=1 / 15, required=False)
