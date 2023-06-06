@@ -13,25 +13,29 @@ The retrogression computation is based on the terrain criteria for landslide ret
 
 ```python
 import rasterio
-from landslide_retrogression import landslide_retrogression_3d, save_results
+import landslide_retrogression
 
 # import dem and release raster
 with rasterio.open("dem.tif") as src:
-    dem_test = src.read(1)
+    dem_array = src.read(1)
     transform = src.transform
     profile = src.profile
-with rasterio.open("release.tif") as src_rel:
-    rel = src_rel.read(1)
+rel = landslide_retrogression.rasterize_release("release.shp", profile)
+# or
+# with rasterio.open("release.tif") as src_rel:
+#     rel = src_rel.read(1)
 
-# calculate retrogression
-release_result = landslide_retrogression_3d(dem_test, rel, transform, verbose=False, min_slope=1 / 15)
+release_result = landslide_retrogression.landslide_retrogression_3d(dem_array, rel, transform,
+                                            verbose=False, min_slope=1/15,
+                                            initial_release_depth=1.5)
 
-# save results
-save_results(release_result, profile, "./release_result.tif")
+landslide_retrogression.polygonize_results(release_result, profile, "results_polygons.shp")
+# or:
+landslide_retrogression.save_results(release_result, profile, "results_raster.tif")
 ```
 
 or from command line:
 
 ```bash
-python landslide_retrogression.py --dem_path dem.tif --source_path initial_release.shp --out_path release_result.shp --verbose False --min_slope 1/15 --initial_release_depth 1.5
+python landslide_retrogression.py --dem_path dem.tif --source_path release.shp --out_path results_polygons.shp --verbose False --min_slope 1/15 --initial_release_depth 1.5
 ```
