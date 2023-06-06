@@ -234,7 +234,7 @@ def compute_slope(coords_1: np.ndarray, coords_2: np.ndarray, h_min: float = 0, 
         return max_slope
 
 
-def rasterize_release(file_path: str, dem_profile: rasterio.profiles.Profile, out_path: str):
+def rasterize_release(file_path: str, dem_profile: rasterio.profiles.Profile, out_path: str = None)-> np.ndarray:
     """
     Rasterize the release area
     Args:
@@ -243,11 +243,8 @@ def rasterize_release(file_path: str, dem_profile: rasterio.profiles.Profile, ou
         out_path: path to the output raster
 
     Returns:
-        None
+        rasterized: rasterized release area as a numpy array
     """
-    if not out_path.endswith(".tif"):
-        out_path += ".tif"
-
     release_shp = gpd.read_file(file_path)
     dem_height = dem_profile['height']
     dem_width = dem_profile['width']
@@ -263,9 +260,13 @@ def rasterize_release(file_path: str, dem_profile: rasterio.profiles.Profile, ou
                                     all_touched=True,
                                     default_value=1,
                                     dtype=None)
+    if out_path is not None:
+        if not out_path.endswith(".tif"):
+            out_path += ".tif"
+        with rasterio.open(out_path, 'w', **dem_profile) as dst:
+            dst.write(rasterized, indexes=1)
 
-    with rasterio.open(out_path, 'w', **dem_profile) as dst:
-        dst.write(rasterized, indexes=1)
+    return rasterized
 
 
 def polygonize_results(result_array: np.ndarray, dem_profile: rasterio.profiles.Profile, out_path: str):
