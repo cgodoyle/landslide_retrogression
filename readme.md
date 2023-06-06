@@ -29,3 +29,9 @@ release_result = landslide_retrogression_3d(dem_test, rel, transform, verbose=Fa
 # save results
 save_results(release_result, profile, "./release_result.tif")
 ```
+
+or from command line:
+
+```bash
+python landslide_retrogression.py --dem_path dem.tif --source_path initial_release.shp --out_path release_result.shp --verbose False --min_slope 1/15 --initial_release_depth 1.5
+```
