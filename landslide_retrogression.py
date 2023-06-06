@@ -4,10 +4,10 @@ import uuid
 import warnings
 from datetime import datetime
 
+import geopandas as gpd
 import matplotlib.pyplot as plt
 import numpy as np
 import rasterio
-import geopandas as gpd
 from matplotlib.colors import ListedColormap
 from rasterio import features
 from scipy.ndimage import binary_dilation
@@ -233,11 +233,11 @@ def compute_slope(coords_1: np.ndarray, coords_2: np.ndarray, h_min: float = 0, 
         hl_ratio[height_mtx < h_min] = nodata
         max_slope = np.max(hl_ratio, axis=1)
 
-        #todo: return slope / distance / height
+        # todo: return slope / distance / height
         return max_slope
 
 
-def rasterize_release(file_path, dem_profile, out_path):
+def rasterize_release(file_path: str, dem_profile: rasterio.profiles.Profile, out_path: str):
     """
     Rasterize the release area
     Args:
@@ -248,6 +248,8 @@ def rasterize_release(file_path, dem_profile, out_path):
     Returns:
         None
     """
+    if not out_path.endswith(".tif"):
+        out_path += ".tif"
 
     release_shp = gpd.read_file(file_path)
     dem_height = dem_profile['height']
@@ -269,6 +271,32 @@ def rasterize_release(file_path, dem_profile, out_path):
         dst.write(rasterized, indexes=1)
 
 
+def polygonize_results(result_array: np.ndarray, dem_profile: rasterio.profiles.Profile, out_path: str):
+    """
+    Polygonize the results and save them as a shapefile
+    Args:
+        result_array: array with the results
+        dem_profile: profile of the dem
+        out_path: path to the output shapefile
+
+    Returns:
+        None
+    """
+    if not out_path.endswith(".shp"):
+        out_path += ".shp"
+
+    raster_transform = dem_profile['transform']
+    raster_crs = dem_profile['crs']
+
+    results = ({"properties": {"value": int(v)}, "geometry": s}
+               for i, (s, v) in enumerate(features.shapes(result_array, mask=None, transform=raster_transform)))
+    geoms = list(results)
+    gpd_polygonized_raster = gpd.GeoDataFrame.from_features(geoms)
+    gpd_polygonized_raster = gpd_polygonized_raster[gpd_polygonized_raster.value == 1]
+    gpd_polygonized_raster = gpd_polygonized_raster.set_crs(raster_crs)
+    gpd_polygonized_raster.to_file(out_path)
+
+
 def save_results(results, raster_profile, filename):
     """
     Save the results to a raster file
@@ -285,7 +313,7 @@ def save_results(results, raster_profile, filename):
             out.write(results, indexes=1)
     except rasterio._err.CPLE_AppDefinedError:
         print("File already exists")
-        new_filename = filename.split(".tif")[0]+"_"+str(uuid.uuid1())[:8]+".tif"
+        new_filename = filename.split(".tif")[0] + "_" + str(uuid.uuid1())[:8] + ".tif"
         print(f"Saving as {new_filename}")
         save_results(results, raster_profile, new_filename)
 
