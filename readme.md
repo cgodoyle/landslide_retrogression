@@ -1,7 +1,7 @@
 # Quick-Clay Retrogression Module
 
 This module provides two functions to iteratively calculate the propagation of the failure surface in 2D and 3D starting
-from an initial failure zone (release). 
+from an initial failure zone (initial release/source area). 
 The module is designed to calculate the retrogression of landslides in quick-clay defined by geometric conditions 
 (generally slope greater than 1:15).
 
