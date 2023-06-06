@@ -7,7 +7,9 @@ from datetime import datetime
 import matplotlib.pyplot as plt
 import numpy as np
 import rasterio
+import geopandas as gpd
 from matplotlib.colors import ListedColormap
+from rasterio import features
 from scipy.ndimage import binary_dilation
 from scipy.spatial import distance_matrix
 
@@ -233,6 +235,38 @@ def compute_slope(coords_1: np.ndarray, coords_2: np.ndarray, h_min: float = 0, 
 
         #todo: return slope / distance / height
         return max_slope
+
+
+def rasterize_release(file_path, dem_profile, out_path):
+    """
+    Rasterize the release area
+    Args:
+        file_path: path to the shapefile
+        dem_profile: profile of the dem
+        out_path: path to the output raster
+
+    Returns:
+        None
+    """
+
+    release_shp = gpd.read_file(file_path)
+    dem_height = dem_profile['height']
+    dem_width = dem_profile['width']
+    dem_transform = dem_profile['transform']
+
+    geom = [shapes for shapes in release_shp.geometry]
+
+    rasterized = features.rasterize(geom,
+                                    out_shape=(dem_height, dem_width),
+                                    fill=0,
+                                    out=None,
+                                    transform=dem_transform,
+                                    all_touched=True,
+                                    default_value=1,
+                                    dtype=None)
+
+    with rasterio.open(out_path, 'w', **dem_profile) as dst:
+        dst.write(rasterized, indexes=1)
 
 
 def save_results(results, raster_profile, filename):
