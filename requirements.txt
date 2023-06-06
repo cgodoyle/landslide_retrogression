@@ -3,3 +3,4 @@ numpy
 rasterio
 scipy
 geopandas
+tqdm

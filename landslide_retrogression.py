@@ -1,5 +1,4 @@
 import logging
-import timeit
 import uuid
 import warnings
 from datetime import datetime
@@ -12,6 +11,7 @@ from matplotlib.colors import ListedColormap
 from rasterio import features
 from scipy.ndimage import binary_dilation
 from scipy.spatial import distance_matrix
+from tqdm import tqdm
 
 logging.basicConfig(filename='./log_skred_prop.log', filemode='w', level=logging.INFO)
 
@@ -103,7 +103,7 @@ def landslide_retrogression_2d(prof: np.ndarray, index_init: int, res: int = 1, 
 
 def landslide_retrogression_3d(dem: np.ndarray, initial_release: np.ndarray, dem_transform: rasterio.transform.Affine,
                                min_slope: float = 1 / 15, min_length: float = 200, max_length: float = 2000,
-                               time_limit: tuple = (60, 1800), verbose: bool = False):
+                               verbose: bool = False):
     """
     Propagates a landslide from a release area in a DEM. Stop criteria is defined by the maximum slope, minimum and
     maximum length of the landslide. The propagation is done iteratively, starting from the release area and moving
@@ -117,8 +117,6 @@ def landslide_retrogression_3d(dem: np.ndarray, initial_release: np.ndarray, dem
         min_slope (float): minimum slope of the landslide. Default is 1/15 as in NVE's guidelines
         min_length (float): minimum length of the landslide. Default is 200 m.
         max_length (float): maximum length of the landslide. Default is 2000 m.
-        time_limit (tuple): time limit for the propagation. Default is 60 seconds for the first iteration
-                            and 1800 for total run time.
         verbose (bool): if True, prints the number of iterations and plots propagation. Default is False.
 
     Returns:
@@ -145,7 +143,6 @@ def landslide_retrogression_3d(dem: np.ndarray, initial_release: np.ndarray, dem
     n_iter = 1
 
     release = initial_release.copy()
-    start_time = timeit.default_timer()
 
     if verbose:
         cmap = ListedColormap(['white', 'red'])
@@ -153,44 +150,44 @@ def landslide_retrogression_3d(dem: np.ndarray, initial_release: np.ndarray, dem
         im = ax.imshow(release, cmap=cmap)
         print("iteration: ")
 
-    while n_iter < max_iter:
-        if n_iter % 2 == 0 and verbose:
-            print(n_iter, end=",")
-            im.set_data(release)
-            plt.pause(0.1)
-            fig.canvas.draw()
+    with tqdm(total=max_iter) as pbar:
+        while n_iter < max_iter:
+            if n_iter % 2 == 0 and verbose:
+                print(n_iter, end=",")
+                im.set_data(release)
+                plt.pause(0.1)
+                fig.canvas.draw()
 
-        i_rel, j_rel = np.where(release == 1)
-        x_rel, y_rel = rasterio.transform.xy(dem_transform, i_rel, j_rel)
-        z_rel = np.array([dem[ii, jj] for ii, jj in zip(i_rel, j_rel)])
-        release_coords = np.c_[x_rel, y_rel, z_rel]
+            i_rel, j_rel = np.where(release == 1)
+            x_rel, y_rel = rasterio.transform.xy(dem_transform, i_rel, j_rel)
+            z_rel = np.array([dem[ii, jj] for ii, jj in zip(i_rel, j_rel)])
+            release_coords = np.c_[x_rel, y_rel, z_rel]
 
-        buffered = create_buffer(release, 1)
-        i_buffered, j_buffered = np.where(buffered == 1)
-        x_buffered, y_buffered = rasterio.transform.xy(dem_transform, i_buffered, j_buffered)
-        z_buffered = np.array([dem[ii, jj] for ii, jj in zip(i_buffered, j_buffered)])
-        buffered_coords = np.c_[x_buffered, y_buffered, z_buffered]
+            buffered = create_buffer(release, 1)
+            i_buffered, j_buffered = np.where(buffered == 1)
+            x_buffered, y_buffered = rasterio.transform.xy(dem_transform, i_buffered, j_buffered)
+            z_buffered = np.array([dem[ii, jj] for ii, jj in zip(i_buffered, j_buffered)])
+            buffered_coords = np.c_[x_buffered, y_buffered, z_buffered]
 
-        slopes = compute_slope(buffered_coords, release_coords, h_min=0)
+            slopes = compute_slope(buffered_coords, release_coords, h_min=0)
 
-        neighbours_filtered = [(i_buffered[ii], j_buffered[ii]) for ii in
-                               list(np.where(np.array(slopes) > min_slope)[0])]
+            neighbours_filtered = [(i_buffered[ii], j_buffered[ii]) for ii in
+                                   list(np.where(np.array(slopes) > min_slope)[0])]
 
-        release_after = release.copy()
+            release_after = release.copy()
 
-        for ii in neighbours_filtered:
-            release_after[ii] = 1
+            for ii in neighbours_filtered:
+                release_after[ii] = 1
 
-        if np.all(release.astype(bool) == release_after.astype(bool)) and n_iter > min_iter:
-            # todo: check height as well
+            if np.all(release.astype(bool) == release_after.astype(bool)) and n_iter > min_iter:
+                # todo: check height as well
 
-            end_time = timeit.default_timer()
-            print(f"break at {n_iter}")
-            print(f"total time = {end_time - start_time}")
-            break
+                print(f"Calculation done in {n_iter} iterations")
+                break
 
-        release = release_after.copy()
-        n_iter += 1
+            release = release_after.copy()
+            n_iter += 1
+            pbar.update(1)
 
     if verbose:
         plt.show()
