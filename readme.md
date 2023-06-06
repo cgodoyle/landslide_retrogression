@@ -9,6 +9,17 @@ The retrogression computation is based on the terrain criteria for landslide ret
 
 ![terrain criteria for landslide retrogression](landslide_retrogression.png)
 
+
+## Installation
+Clone the repository:
+```bash
+git clone https://github.com/cgodoyle/landslide_retrogression.git
+```
+Install the requirements:
+```bash
+pip install -r requirements.txt
+```
+
 ## Usage
 
 ```python
