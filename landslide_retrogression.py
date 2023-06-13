@@ -7,8 +7,8 @@ from datetime import datetime
 import geopandas as gpd
 import matplotlib.pyplot as plt
 import numpy as np
+import plotly.graph_objects as go
 import rasterio
-from matplotlib.colors import ListedColormap
 from rasterio import features
 from scipy.ndimage import binary_dilation
 from scipy.spatial import distance_matrix
@@ -104,7 +104,7 @@ def landslide_retrogression_2d(prof: np.ndarray, index_init: int, res: int = 1, 
 
 def landslide_retrogression_3d(dem: np.ndarray, initial_release: np.ndarray, dem_transform: rasterio.transform.Affine,
                                min_slope: float = 1 / 15, min_length: float = 200, max_length: float = 2000,
-                               initial_release_depth: float = 0, verbose: bool = False):
+                               min_height: float = 5, initial_release_depth: float = 0, mask: np.ndarray = None, ):
     """
     Propagates a landslide from a release area in a DEM. Stop criteria is defined by the maximum slope, minimum and
     maximum length of the landslide. The propagation is done iteratively, starting from the release area and moving
@@ -118,9 +118,10 @@ def landslide_retrogression_3d(dem: np.ndarray, initial_release: np.ndarray, dem
         min_slope (float): minimum slope of the landslide. Default is 1/15 as in NVE's guidelines
         min_length (float): minimum length of the landslide. Default is 200 m.
         max_length (float): maximum length of the landslide. Default is 2000 m.
+        min_height (float): minimum height of the landslide (checked after min_iter). Default is 5 m.
         initial_release_depth (float): depth of the initial release area. Default is 0.
         #todo: change to depth in the raster (as pixel value) instead.
-        verbose (bool): if True, prints the number of iterations and plots propagation. Default is False.
+        mask (np.ndarray): mask of the area outside analysis. Must have the same shape and same transform as the DEM.
 
     Returns:
         release (np.ndarray): propagated release area of the landslide as a boolean numpy array
@@ -147,30 +148,22 @@ def landslide_retrogression_3d(dem: np.ndarray, initial_release: np.ndarray, dem
 
     release = initial_release.copy()
 
-    if verbose:
-        cmap = ListedColormap(['white', 'red'])
-        fig, ax = plt.subplots()
-        im = ax.imshow(release, cmap=cmap)
+    mask = np.zeros_like(dem).astype(bool) if mask is None else mask
 
-    i_rel, j_rel = np.where(initial_release == 1)
-    x_rel, y_rel = rasterio.transform.xy(dem_transform, i_rel, j_rel)
-    z_rel = np.array([dem[ii, jj] - initial_release_depth for ii, jj in zip(i_rel, j_rel)])
-    release_coords = np.c_[x_rel, y_rel, z_rel]
+    release_coords, _, _ = get_coordinates(initial_release, dem, dem_transform)
+    release_coords[:, 2] = release_coords[:, 2] - initial_release_depth
+
+    animation = []
+    animation.append(initial_release)
 
     with tqdm(total=max_iter, desc="iterations") as pbar:
         while n_iter < max_iter:
-            if n_iter % 2 == 0 and verbose:
-                im.set_data(release)
-                plt.pause(0.01)
-                fig.canvas.draw()
 
             buffered = create_buffer(release, 1)
-            i_buffered, j_buffered = np.where(buffered == 1)
-            x_buffered, y_buffered = rasterio.transform.xy(dem_transform, i_buffered, j_buffered)
-            z_buffered = np.array([dem[ii, jj] for ii, jj in zip(i_buffered, j_buffered)])
-            buffered_coords = np.c_[x_buffered, y_buffered, z_buffered]
+            buffered_coords, i_buffered, j_buffered = get_coordinates(buffered, dem, dem_transform)
 
-            slopes = compute_slope(buffered_coords, release_coords, h_min=0)
+            h_min = 0 if n_iter <= min_iter else min_height
+            slopes, _, _ = compute_slope(buffered_coords, release_coords, h_min=h_min)
 
             neighbours_filtered = [(i_buffered[ii], j_buffered[ii]) for ii in
                                    list(np.where(np.array(slopes) > min_slope)[0])]
@@ -180,6 +173,8 @@ def landslide_retrogression_3d(dem: np.ndarray, initial_release: np.ndarray, dem
             for ii in neighbours_filtered:
                 release_after[ii] = 1
 
+            release_after[mask == 1] = 0
+
             if np.all(release.astype(bool) == release_after.astype(bool)) and n_iter > min_iter:
                 # todo: check height as well
 
@@ -187,13 +182,28 @@ def landslide_retrogression_3d(dem: np.ndarray, initial_release: np.ndarray, dem
                 break
 
             release = release_after.copy()
+            animation.append(release_after)
             n_iter += 1
             pbar.update(1)
 
-    if verbose:
-        plt.show()
+    return release, animation
 
-    return release
+
+def get_coordinates(arr, dem, transform):
+    """
+    Returns the coordinates of the points in the array arr in the same order as in the array.
+    Parameters:
+        arr (np.ndarray): array of points
+        dem (np.ndarray): DEM as a numpy array
+        transform (Affine): affine transformation of the DEM/release.
+    Returns:
+        arr_coords (np.ndarray): array of coordinates of the points in the same order as in arr
+    """
+    i_arr, j_arr = np.where(arr == 1)
+    x_arr, y_arr = rasterio.transform.xy(transform, i_arr, j_arr)
+    z_arr = np.array([dem[ii, jj] for ii, jj in zip(i_arr, j_arr)])
+    arr_coords = np.c_[x_arr, y_arr, z_arr]
+    return arr_coords, i_arr, j_arr
 
 
 def create_buffer(image, buffer_size):
@@ -207,7 +217,7 @@ def create_buffer(image, buffer_size):
     return buffer
 
 
-def compute_slope(coords_1: np.ndarray, coords_2: np.ndarray, h_min: float = 0, nodata: int = -9999) -> np.ndarray:
+def compute_slope(coords_1: np.ndarray, coords_2: np.ndarray, h_min: float = 0, nodata: int = -9999) -> tuple:
     """
     Compute the slopes of the given dem with respect to the (source) points
     Args:
@@ -230,9 +240,11 @@ def compute_slope(coords_1: np.ndarray, coords_2: np.ndarray, h_min: float = 0, 
         hl_ratio = height_mtx / distance_mtx
         hl_ratio[height_mtx < h_min] = nodata
         max_slope = np.max(hl_ratio, axis=1)
+        ii_max = np.argmax(hl_ratio, axis=1)
+        dist_of_max = np.array([dd[ii_max[ii]] for ii, dd in enumerate(distance_mtx)])
+        height_of_max = np.array([dd[ii_max[ii]] for ii, dd in enumerate(height_mtx)])
 
-        # todo: return max_slope / distance(max_slope) / height(max_slope)
-        return max_slope
+        return max_slope, dist_of_max, height_of_max
 
 
 def rasterize_release(file_path: str, dem_profile: rasterio.profiles.Profile, out_path: str = None) -> np.ndarray:
@@ -317,6 +329,105 @@ def save_results(results, raster_profile, filename):
         save_results(results, raster_profile, new_filename)
 
 
+def get_msml_mask(bounds: tuple, profile):
+    """
+    Get the MSML mask as an array for the given bounds
+    """
+    from os import path
+    from urllib.request import urlopen
+    import tempfile
+    import pandas as pd
+    with tempfile.TemporaryDirectory() as tempdir:
+        xmin, ymin, xmax, ymax = bounds
+
+        # Get MSML mask
+        url_nve_msml = "https://gis3.nve.no/map/rest/services/Mapservices/MarinGrense/MapServer/7/query?" \
+                       "geometry=xmin%3A+{}%2C+ymin%3A+{}%2C+xmax%3A+{}%2C+ymax%3A+{}&" \
+                       "geometryType=esriGeometryEnvelope&f=geojson"
+        query_msml_mask = url_nve_msml.format(xmin, ymin, xmax, ymax)
+        response = urlopen(query_msml_mask)
+        json_mask = response.read()
+
+        with open(path.join(tempdir, "msml_mask.json"), "wb") as file_json_mask:
+            file_json_mask.write(json_mask)
+        mask_msml = gpd.read_file(path.join("test", "msml_mask.json"), driver='GeoJSON').to_crs(epsg=25833)
+
+        # Get Areal under MG mask
+        url_nve_aumg = "https://gis3.nve.no/map/rest/services/Mapservices/MarinGrense/MapServer/8/query?" \
+                       "geometry=xmin%3A+{}%2C+ymin%3A+{}%2C+xmax%3A+{}%2C+ymax%3A+{}&" \
+                       "geometryType=esriGeometryEnvelope&f=geojson"
+        query_aumg_mask = url_nve_aumg.format(xmin, ymin, xmax, ymax)
+        response_2 = urlopen(query_aumg_mask)
+        json_mask_2 = response_2.read()
+        with open(path.join(tempdir, "marin_mask.json"), "wb") as file_json_mask:
+            file_json_mask.write(json_mask_2)
+        mask_aumg = gpd.read_file(path.join("test", "marin_mask.json"), driver='GeoJSON').to_crs(epsg=25833)
+
+        # concatenate masks
+        mask = gpd.GeoDataFrame(pd.concat([mask_msml, mask_aumg], ignore_index=True)).set_crs(epsg=25833)
+
+        mask.to_file(f"{tempdir}/msml_mask.shp")
+        mask_array = rasterize_release(f"{tempdir}/msml_mask.shp", profile)
+
+    return mask_array
+
+
+def animate_landslide_retrogresion(animation, dem, n_frames=10):
+    """
+    Animate the landslide retrogression
+    Args:
+        animation: list of arrays with the landslide retrogression
+        dem: array with the dem
+        n_frames: number of frames to use
+
+    Returns:
+        fig: plotly figure with the animation
+    """
+    print("Animating landslide retrogression")
+    if n_frames > len(animation):
+        n_frames = len(animation)
+    frame_step = len(animation) // n_frames if len(animation) // n_frames > 1 else 2
+
+    color_red = 'rgba(255, 0, 0, 0.5)'
+    color_white = 'rgba(255, 255, 255, 0.0)'
+    color_black = 'rgba(0, 0, 0, 0.5)'
+
+    fig_data = [go.Heatmap(z=dem, colorscale="earth", showscale=False),
+                go.Heatmap(z=animation[0], colorscale=[[0, color_white], [1, color_black]], showscale=False)]
+    fig = go.Figure(
+        data=fig_data,
+        layout=go.Layout(
+            title="Step 0",
+            updatemenus=[dict(
+                type="buttons",
+                buttons=[dict(label="Play",
+                              method="animate",
+                              args=[None])])]
+        ),
+    )
+
+    frames = [go.Frame(data=[go.Heatmap(z=dem, colorscale="earth", showscale=False),
+                             go.Heatmap(z=animation[i], colorscale=[[0, color_white], [1, color_red]],
+                                        showscale=False)],
+                       layout=go.Layout(title_text=f"Step {i}"))
+              for i in range(1, len(animation), frame_step)]
+    frames.append(go.Frame(data=[go.Heatmap(z=dem, colorscale="earth", showscale=False),
+                                 go.Heatmap(z=animation[-1], colorscale=[[0, color_white], [1, color_red]],
+                                            showscale=False)],
+                           layout=go.Layout(title_text=f"Step {len(animation)}")))
+    fig.frames = frames
+
+    height, width = dem.shape
+
+    fig.update_xaxes(scaleanchor="y")
+    fig.update_yaxes(scaleratio=1, autorange="reversed")
+    fig.update_layout(xaxis_range=[0, width], yaxis_range=[0, height])
+    fig.update_layout(width=1000, height=1000, coloraxis_showscale=False, plot_bgcolor=color_white,
+                      )
+
+    return fig
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--source_path", help="Path to the source area shapefile", required=True)
@@ -334,9 +445,13 @@ def main():
         profile = src.profile
     rel = rasterize_release(args.source_path, profile)
 
-    release_result = landslide_retrogression_3d(dem_array, rel, transform,
-                                                verbose=args.verbose, min_slope=args.min_slope,
-                                                initial_release_depth=args.initial_release_depth)
+    release_result, animation = landslide_retrogression_3d(dem_array, rel, transform,
+                                                           min_slope=args.min_slope,
+                                                           initial_release_depth=args.initial_release_depth)
+
+    if args.verbose:
+        fig = animate_landslide_retrogresion(animation, dem_array)
+        fig.show()
 
     if args.out_path is not None:
         polygonize_results(release_result, profile, args.out_path)
