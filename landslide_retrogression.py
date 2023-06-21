@@ -246,6 +246,34 @@ def compute_slope(coords_1: np.ndarray, coords_2: np.ndarray, h_min: float = 0, 
         return max_slope, dist_of_max, height_of_max
 
 
+def rasterize_shape(release_shp, dem_profile: rasterio.profiles.Profile) -> np.ndarray:
+    """
+    Rasterize the release area
+    Args:
+        release_shp: release area as a geopandas dataframe
+        dem_profile: profile of the dem
+
+    Returns:
+        rasterized: rasterized release area as a numpy array
+    """
+    dem_height = dem_profile['height']
+    dem_width = dem_profile['width']
+    dem_transform = dem_profile['transform']
+
+    geom = [shapes_ii for shapes_ii in release_shp.geometry]
+
+    rasterized = features.rasterize(geom,
+                                    out_shape=(dem_height, dem_width),
+                                    fill=0,
+                                    out=None,
+                                    transform=dem_transform,
+                                    all_touched=True,
+                                    default_value=1,
+                                    dtype=None)
+
+    return rasterized
+
+
 def rasterize_release(file_path: str, dem_profile: rasterio.profiles.Profile, out_path: str = None) -> np.ndarray:
     """
     Rasterize the release area
