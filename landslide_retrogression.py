@@ -148,8 +148,6 @@ def landslide_retrogression_3d(dem: np.ndarray, initial_release: np.ndarray, dem
 
     release = initial_release.copy()
 
-    mask = np.zeros_like(dem).astype(bool) if mask is None else mask
-
     release_coords, _, _ = get_coordinates(initial_release, dem, dem_transform)
     release_coords[:, 2] = release_coords[:, 2] - initial_release_depth
 
@@ -173,7 +171,8 @@ def landslide_retrogression_3d(dem: np.ndarray, initial_release: np.ndarray, dem
             for ii in neighbours_filtered:
                 release_after[ii] = 1
 
-            release_after[mask == 1] = 0
+            if mask is not None:
+                release_after[mask == 0] = 0
 
             if np.all(release.astype(bool) == release_after.astype(bool)) and n_iter > min_iter:
                 # todo: check height as well
@@ -329,9 +328,15 @@ def save_results(results, raster_profile, filename):
         save_results(results, raster_profile, new_filename)
 
 
-def get_msml_mask(bounds: tuple, profile):
+def get_msml_mask(bounds: tuple, dem_profile):
     """
     Get the MSML mask as an array for the given bounds
+    Args:
+        bounds: tuple with the bounds (xmin, ymin, xmax, ymax)
+        dem_profile: profile of the dem (optional)
+
+    Returns:
+        mask_array: array with the MSML mask
     """
     from os import path
     from urllib.request import urlopen
@@ -350,7 +355,7 @@ def get_msml_mask(bounds: tuple, profile):
 
         with open(path.join(tempdir, "msml_mask.json"), "wb") as file_json_mask:
             file_json_mask.write(json_mask)
-        mask_msml = gpd.read_file(path.join("test", "msml_mask.json"), driver='GeoJSON').to_crs(epsg=25833)
+        mask_msml = gpd.read_file(path.join(tempdir, "msml_mask.json"), driver='GeoJSON').to_crs(epsg=25833)
 
         # Get Areal under MG mask
         url_nve_aumg = "https://gis3.nve.no/map/rest/services/Mapservices/MarinGrense/MapServer/8/query?" \
@@ -361,15 +366,16 @@ def get_msml_mask(bounds: tuple, profile):
         json_mask_2 = response_2.read()
         with open(path.join(tempdir, "marin_mask.json"), "wb") as file_json_mask:
             file_json_mask.write(json_mask_2)
-        mask_aumg = gpd.read_file(path.join("test", "marin_mask.json"), driver='GeoJSON').to_crs(epsg=25833)
+        mask_aumg = gpd.read_file(path.join(tempdir, "marin_mask.json"), driver='GeoJSON').to_crs(epsg=25833)
 
         # concatenate masks
-        mask = gpd.GeoDataFrame(pd.concat([mask_msml, mask_aumg], ignore_index=True)).set_crs(epsg=25833)
+        mask_gpd = gpd.GeoDataFrame(pd.concat([mask_msml, mask_aumg], ignore_index=True)).set_crs(epsg=25833)
+        if len(mask_gpd) == 0:
+            mask_array = None
+        else:
+            mask_array = rasterize_shape(mask_gpd, dem_profile)
 
-        mask.to_file(f"{tempdir}/msml_mask.shp")
-        mask_array = rasterize_release(f"{tempdir}/msml_mask.shp", profile)
-
-    return mask_array
+        return mask_array
 
 
 def animate_landslide_retrogresion(animation, dem, n_frames=10):

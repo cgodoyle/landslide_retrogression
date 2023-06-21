@@ -5,6 +5,8 @@ from an initial failure zone (initial release/source area).
 The module is designed to calculate the retrogression of landslides in quick-clay defined by geometric conditions 
 (generally slope greater than 1:15).
 
+![Landslide retrogression](retrogression_animation.gif)
+
 The retrogression computation is based on the terrain criteria for landslide retrogression showed in [NVE Kvikkleireveileder 1/2019](https://publikasjoner.nve.no/veileder/2019/veileder2019_01.pdf).
 
 ![terrain criteria for landslide retrogression](landslide_retrogression.png)
